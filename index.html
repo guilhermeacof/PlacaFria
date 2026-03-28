@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Consulta de Placa de Veículo</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #181a20; margin: 0; padding: 0; color: #f1f1f1; }
+        .container { max-width: 400px; margin: 60px auto; background: #23262f; padding: 30px 40px 40px 40px; border-radius: 10px; box-shadow: 0 2px 16px rgba(0,0,0,0.4); }
+        h2 { text-align: center; color: #f1f1f1; }
+        label { display: block; margin-bottom: 8px; color: #b0b3b8; }
+        input[type="text"] { width: 100%; padding: 10px; margin-bottom: 18px; border: 1px solid #444; border-radius: 5px; font-size: 1.1em; background: #181a20; color: #f1f1f1; }
+        button { width: 100%; padding: 12px; background: #007bff; color: #fff; border: none; border-radius: 5px; font-size: 1.1em; cursor: pointer; transition: background 0.2s; }
+        button:hover { background: #0056b3; }
+        #abrirCamera { background: #28a745; }
+        #abrirCamera:hover { background: #218838; }
+        #capturarBtn { background: #ffc107; color: #222; }
+        #capturarBtn:hover { background: #e0a800; color: #fff; }
+        .resultado { margin-top: 25px; padding: 15px; background: #23262f; border-radius: 6px; transition: background 0.3s; color: #f1f1f1; border: 1px solid #333; }
+        .fria { background: #ff4d4d !important; color: #fff; font-weight: bold; }
+        .erro { color: #ff7675; }
+        pre { background: #181a20 !important; color: #b0b3b8; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Consulta de Placa</h2>
+        <form id="formConsulta">
+            <label for="placa">Placa do veículo:</label>
+            <input type="text" id="placa" name="placa" placeholder="ABC1234 ou ABC1D23" maxlength="7" required>
+            <button type="submit">Consultar</button>
+            <button type="button" id="abrirCamera" style="margin-top:10px;background:#28a745;">Abrir Câmera</button>
+            <div id="cameraContainer" style="display:none;margin-top:10px;text-align:center;">
+                <video id="video" width="320" height="240" autoplay style="border-radius:8px;"></video><br>
+                    <button type="button" id="capturarBtn" style="margin-top:10px;background:#ffc107;color:#222;">Capturar</button>
+                <span id="cameraStatus" style="color:#888;font-size:0.95em;"></span>
+            </div>
+        </form>
+        <div id="resultado" class="resultado" style="display:none;"></div>
+    </div>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Câmera e captura manual
+        const abrirCameraBtn = document.getElementById('abrirCamera');
+        const cameraContainer = document.getElementById('cameraContainer');
+        const video = document.getElementById('video');
+        const cameraStatus = document.getElementById('cameraStatus');
+        let stream = null;
+        let placaDetectada = false;
+        let ocrTextDebug = '';
+
+        abrirCameraBtn.addEventListener('click', async function() {
+            cameraContainer.style.display = 'block';
+            if (!stream) {
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
+                    video.srcObject = stream;
+                } catch (err) {
+                    alert('Não foi possível acessar a câmera: ' + err);
+                    return;
+                }
+            }
+            cameraStatus.textContent = 'Clique em Capturar para ler a placa.';
+            placaDetectada = false;
+        });
+
+        document.getElementById('capturarBtn').addEventListener('click', async function() {
+            if (!stream || placaDetectada) return;
+            // Aumenta a resolução do canvas para máxima qualidade
+            const canvas = document.createElement('canvas');
+            canvas.width = 1280;
+            canvas.height = 720;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // Recorta uma região central maior (placa)
+            const cropWidth = 700;
+            const cropHeight = 220;
+            const cropX = (canvas.width - cropWidth) / 2;
+            const cropY = (canvas.height - cropHeight) / 2;
+            const cropCanvas = document.createElement('canvas');
+            cropCanvas.width = cropWidth;
+            cropCanvas.height = cropHeight;
+            const cropCtx = cropCanvas.getContext('2d');
+            cropCtx.drawImage(canvas, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+            const dataUrl = cropCanvas.toDataURL('image/jpeg');
+
+            const resultadoDiv = document.getElementById('resultado');
+            resultadoDiv.style.display = 'block';
+            resultadoDiv.innerHTML = 'Reconhecendo placa...';
+            try {
+                const resp = await fetch('/ocr_placa', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ imagem: dataUrl })
+                });
+                let data;
+                try {
+                    data = await resp.json();
+                } catch (jsonErr) {
+                    const text = await resp.text();
+                    cameraStatus.textContent = 'Erro do backend: ' + text;
+                    return;
+                }
+                ocrTextDebug = data.ocr_text || '';
+                if (data.placa) {
+                    placaDetectada = true;
+                    cameraStatus.textContent = 'Placa detectada: ' + data.placa;
+                    document.getElementById('placa').value = data.placa;
+                    document.getElementById('formConsulta').dispatchEvent(new Event('submit'));
+                } else {
+                    cameraStatus.textContent = 'Não foi possível detectar a placa. Tente novamente.';
+                }
+                // Exibe o texto bruto do OCR para debug
+                resultadoDiv.innerHTML = `<b>Texto OCR:</b><br><pre style='font-size:0.95em;background:#f8f8f8;border-radius:4px;padding:6px;'>${ocrTextDebug}</pre>` + resultadoDiv.innerHTML;
+            } catch (err) {
+                cameraStatus.textContent = 'Erro ao processar imagem: ' + err;
+            }
+        });
+    });
+
+        // Função capturaFrame removida (não é mais usada)
+        document.getElementById('formConsulta').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const placa = document.getElementById('placa').value.trim();
+            const resultadoDiv = document.getElementById('resultado');
+            resultadoDiv.style.display = 'block';
+            resultadoDiv.innerHTML = 'Consultando...';
+            try {
+                const resp = await fetch('/consultar', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ placa })
+                });
+                const data = await resp.json();
+                if (data.sucesso) {
+                    const isFria = [data.marca_modelo, data.cor, data.ano_fabricacao_modelo, data.chassi]
+                        .every(val => typeof val === 'string' && (/^\*+$/.test(val || '') || /^\*+\/\*+$/.test(val || '')));
+                    resultadoDiv.classList.toggle('fria', isFria);
+                    if (isFria) {
+                        resultadoDiv.innerHTML = `<b>CUIDADO! PLACA FRIA!</b><br>
+                            <b>Placa:</b> ${data.placa_retorno || data.placa_consultada}<br>
+                            <b>Marca/Modelo:</b> ${data.marca_modelo}<br>
+                            <b>Cor:</b> ${data.cor}<br>
+                            <b>Ano Fab/Mod:</b> ${data.ano_fabricacao_modelo}<br>
+                            <b>Chassi:</b> ${data.chassi}`;
+                    } else {
+                        resultadoDiv.innerHTML = `
+                            <b>Placa:</b> ${data.placa_retorno || data.placa_consultada}<br>
+                            <b>Marca/Modelo:</b> ${data.marca_modelo || '-'}<br>
+                            <b>Cor:</b> ${data.cor || '-'}<br>
+                            <b>Ano Fab/Mod:</b> ${data.ano_fabricacao_modelo || '-'}<br>
+                            <b>Chassi:</b> ${data.chassi || '-'}
+                        `;
+                    }
+                } else {
+                    resultadoDiv.classList.remove('fria');
+                    resultadoDiv.innerHTML = `<span class="erro"><b>CUIDADO! PLACA FRIA!</b><br>${data.erro ? 'Erro: ' + data.erro : ''}</span>`;
+                }
+            } catch (err) {
+                resultadoDiv.innerHTML = `<span class="erro">Erro ao consultar: ${err}</span>`;
+            }
+        });
+    </script>
+</body>
+</html>

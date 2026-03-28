@@ -1,0 +1,3 @@
+# requirements for camera and plate recognition
+opencv-python
+pytesseract
