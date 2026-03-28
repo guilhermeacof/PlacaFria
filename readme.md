@@ -2,7 +2,7 @@ LEITOR DE PLACA VEICULAR — Consulta automática e interface web
 ============================================================
 
 📌 **Descrição**
-Este sistema consulta informações de veículos a partir da placa, automatizando o site https://www.lupaveicular.com/.
+Este sistema consulta informações de veículos a partir da placa, automatizando o site https://www.xxxxxxxxxxx.com/.
 Inclui interface web com leitura por câmera (OCR) e consulta automática.
 
 ---
